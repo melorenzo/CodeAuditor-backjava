@@ -1,0 +1,76 @@
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: auditoria-postgres
+    environment:
+      POSTGRES_DB: auditoria_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      TZ: UTC
+      PGTZ: UTC
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d auditoria_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - auditoria-net
+
+  backend-python:
+    build:
+      context: ./backend-python
+    container_name: auditoria-python
+    env_file:
+      - ./backend-python/.env
+    ports:
+      - "8000:8000"
+    networks:
+      - auditoria-net
+    restart: unless-stopped
+
+  backend-java:
+    build:
+      context: ./backend-java
+    container_name: auditoria-java
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://auditoria-postgres:5432/auditoria_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_JPA_PROPERTIES_HIBERNATE_JDBC_TIME_ZONE: UTC
+      PYTHON_SERVICE_URL: http://backend-python:8000
+      TZ: UTC
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend-python:
+        condition: service_started
+    networks:
+      - auditoria-net
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: auditoria-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend-java
+    networks:
+      - auditoria-net
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  auditoria-net:
+    driver: bridge
